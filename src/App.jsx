@@ -349,7 +349,10 @@ export default function App() {
 
   // --- Logic: Layout Panel ---
 
-  const handleDeskMouseDown = (e, deskId) => {
+  const handleDeskPointerDown = (e, deskId) => {
+    // Prevent touch scrolling while dragging
+    e.preventDefault?.();
+
     if (selectedZoneTool) {
       if (selectedZoneTool === 'delete') {
         setDesks(desks.filter(d => d.id !== deskId));
@@ -366,6 +369,13 @@ export default function App() {
     const desk = desks.find(d => d.id === deskId);
     if (!containerRef.current || !desk) return;
 
+    // Capture the pointer so we keep getting move events
+    try {
+      containerRef.current.setPointerCapture?.(e.pointerId);
+    } catch {
+      // no-op
+    }
+
     const rect = containerRef.current.getBoundingClientRect();
     const offsetX = e.clientX - rect.left - desk.x;
     const offsetY = e.clientY - rect.top - desk.y;
@@ -374,7 +384,7 @@ export default function App() {
     setDragOffset({ x: offsetX, y: offsetY });
   };
 
-  const handleMouseMove = e => {
+  const handlePointerMove = e => {
     if (isDraggingDesk && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left - dragOffset.x;
@@ -383,7 +393,12 @@ export default function App() {
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = e => {
+    try {
+      containerRef.current?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // no-op
+    }
     setIsDraggingDesk(null);
   };
 
@@ -559,8 +574,8 @@ export default function App() {
 
     return (
       <div
-        onMouseDown={e => handleDeskMouseDown(e, desk.id)}
-        className={`absolute w-32 h-20 border-2 rounded-lg flex flex-col items-center justify-center cursor-move shadow-md transition-colors ${zoneStyle}`}
+        onPointerDown={e => handleDeskPointerDown(e, desk.id)}
+        className={`absolute w-32 h-20 border-2 rounded-lg flex flex-col items-center justify-center cursor-move shadow-md transition-colors touch-none select-none ${zoneStyle}`}
         style={{ left: desk.x, top: desk.y }}
       >
         <div className="absolute -top-6 text-xs font-bold text-gray-500 bg-white/80 px-1 rounded">
@@ -969,28 +984,28 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-gray-100 text-gray-800 flex flex-col font-sans" dir="rtl">
       {/* Header */}
-      <header className="bg-white shadow-sm p-4 flex justify-between items-center z-20">
+      <header className="bg-white shadow-sm p-3 md:p-4 flex flex-col md:flex-row md:justify-between md:items-center z-20 gap-2">
         <h1 className="text-2xl font-bold text-blue-800 flex items-center gap-2">
           <Layout className="text-blue-600" /> SmartClass
         </h1>
-        <div className="flex gap-4">
+        <div className="flex gap-2 md:gap-4 flex-wrap justify-start md:justify-end">
           <button
             onClick={arrangeSeating}
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95"
+            className="bg-green-600 hover:bg-green-700 text-white px-4 md:px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95 text-sm md:text-base"
           >
-            <RefreshCw size={20} /> סדר כיתה
+            <RefreshCw size={18} className="md:w-5 md:h-5" /> <span className="hidden sm:inline">סדר כיתה</span>
           </button>
           <button
             onClick={openSaveModal}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 md:px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95 text-sm md:text-base"
           >
-            <Save size={20} /> שמור
+            <Save size={18} className="md:w-5 md:h-5" /> <span className="hidden sm:inline">שמור</span>
           </button>
           <button
             onClick={() => void openRestoreModal()}
-            className="bg-white hover:bg-gray-50 border px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95"
+            className="bg-white hover:bg-gray-50 border px-4 md:px-6 py-2 rounded-lg font-bold shadow flex items-center gap-2 transition-transform active:scale-95 text-sm md:text-base"
           >
-            <FolderDown size={20} /> שחזור
+            <FolderDown size={18} className="md:w-5 md:h-5" /> <span className="hidden sm:inline">שחזור</span>
           </button>
         </div>
       </header>
@@ -998,7 +1013,7 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Tabs */}
-        <nav className="w-72 bg-white border-l shadow-lg flex flex-col z-10 flex-shrink-0">
+        <nav className="hidden md:flex w-72 bg-white border-l shadow-lg flex-col z-10 flex-shrink-0">
           <button
             onClick={() => setActiveTab('layout')}
             className={`p-4 text-right hover:bg-gray-50 transition-colors flex items-center gap-3 border-b ${
@@ -1107,11 +1122,13 @@ export default function App() {
 
         {/* Workspace */}
         <main
-          className="flex-1 bg-gray-200 relative overflow-hidden"
+          className={`flex-1 bg-gray-200 relative overflow-hidden touch-none ${
+            activeTab === 'layout' ? 'pb-32 md:pb-0' : 'pb-20 md:pb-0'
+          }`}
           ref={containerRef}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
           {/* Notification Toast */}
           {notification && (
@@ -1123,6 +1140,64 @@ export default function App() {
 
           {activeTab === 'layout' ? (
             <>
+              {/* Mobile: Layout Tools Bar */}
+              <div className="md:hidden fixed bottom-16 left-0 right-0 z-40 p-2">
+                <div className="mx-auto max-w-xl bg-white/95 backdrop-blur border rounded-xl shadow-lg p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={addDesk}
+                        className="bg-white border hover:bg-gray-100 px-3 py-2 rounded flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Plus size={16} /> הוסף
+                      </button>
+                      <button
+                        onClick={() => setSelectedZoneTool(selectedZoneTool === 'delete' ? null : 'delete')}
+                        className={`bg-white border hover:bg-red-50 px-3 py-2 rounded flex items-center justify-center gap-2 text-sm text-red-600 ${
+                          selectedZoneTool === 'delete' ? 'ring-2 ring-red-500 bg-red-50' : ''
+                        }`}
+                      >
+                        <Trash2 size={16} /> מחק
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedZoneTool(selectedZoneTool === 'green' ? null : 'green')}
+                        className={`px-3 py-2 rounded border text-sm flex items-center gap-2 ${
+                          selectedZoneTool === 'green' ? 'ring-2 ring-green-500 bg-green-50' : 'bg-white'
+                        }`}
+                      >
+                        <div className="w-3 h-3 rounded bg-green-200 border border-green-400"></div> קרוב
+                      </button>
+                      <button
+                        onClick={() => setSelectedZoneTool(selectedZoneTool === 'orange' ? null : 'orange')}
+                        className={`px-3 py-2 rounded border text-sm flex items-center gap-2 ${
+                          selectedZoneTool === 'orange' ? 'ring-2 ring-orange-500 bg-orange-50' : 'bg-white'
+                        }`}
+                      >
+                        <div className="w-3 h-3 rounded bg-orange-200 border border-orange-400"></div> בינוני
+                      </button>
+                      <button
+                        onClick={() => setSelectedZoneTool(selectedZoneTool === 'red' ? null : 'red')}
+                        className={`px-3 py-2 rounded border text-sm flex items-center gap-2 ${
+                          selectedZoneTool === 'red' ? 'ring-2 ring-red-500 bg-red-50' : 'bg-white'
+                        }`}
+                      >
+                        <div className="w-3 h-3 rounded bg-red-200 border border-red-400"></div> רחוק
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    {selectedZoneTool === 'delete'
+                      ? 'לחץ על שולחן למחיקה'
+                      : selectedZoneTool
+                        ? 'לחץ על שולחן לצביעה'
+                        : 'גרור שולחנות למיקום הרצוי'}
+                  </p>
+                </div>
+              </div>
+
               {/* Board Representation */}
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-1/3 h-4 bg-gray-800 rounded-lg shadow-lg flex items-center justify-center">
                 <span className="text-white text-xs">לוח הכיתה</span>
@@ -1135,7 +1210,7 @@ export default function App() {
 
               {/* Layout Helper Text */}
               {selectedStudentForSwap && (
-                <div className="absolute bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 animate-pulse">
+                <div className="absolute bottom-24 md:bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 animate-pulse">
                   <Move size={16} /> בחר תלמיד אחר או כיסא פנוי להחלפה
                   <button onClick={() => setSelectedStudentForSwap(null)} className="hover:bg-blue-700 p-1 rounded ml-2">
                     <X size={14} />
@@ -1144,19 +1219,57 @@ export default function App() {
               )}
             </>
           ) : activeTab === 'constraints' ? (
-            <div className="p-8 h-full max-w-4xl mx-auto">
+            <div className="p-4 md:p-8 h-full max-w-4xl mx-auto">
               <ConstraintsPanel />
             </div>
           ) : activeTab === 'backup' ? (
-            <div className="p-8 h-full max-w-5xl mx-auto">
+            <div className="p-4 md:p-8 h-full max-w-5xl mx-auto">
               <BackupPanel />
             </div>
           ) : (
-            <div className="p-8 h-full max-w-4xl mx-auto">
+            <div className="p-4 md:p-8 h-full max-w-4xl mx-auto">
               <RosterPanel />
             </div>
           )}
         </main>
+      </div>
+
+      {/* Mobile Bottom Tab Bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t shadow-lg">
+        <div className="grid grid-cols-4">
+          <button
+            onClick={() => setActiveTab('layout')}
+            className={`p-3 flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === 'layout' ? 'text-blue-700 font-bold bg-blue-50' : 'text-gray-600'
+            }`}
+          >
+            <Layout size={18} /> הושבה
+          </button>
+          <button
+            onClick={() => setActiveTab('constraints')}
+            className={`p-3 flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === 'constraints' ? 'text-blue-700 font-bold bg-blue-50' : 'text-gray-600'
+            }`}
+          >
+            <Settings size={18} /> מאפיינים
+          </button>
+          <button
+            onClick={() => setActiveTab('roster')}
+            className={`p-3 flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === 'roster' ? 'text-blue-700 font-bold bg-blue-50' : 'text-gray-600'
+            }`}
+          >
+            <Users size={18} /> כיתה
+          </button>
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`p-3 flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === 'backup' ? 'text-blue-700 font-bold bg-blue-50' : 'text-gray-600'
+            }`}
+          >
+            <FolderDown size={18} /> גיבוי
+          </button>
+        </div>
       </div>
 
       {/* Save Modal */}
