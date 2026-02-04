@@ -187,13 +187,36 @@ export default function App() {
   const [backupStorageKind, setBackupStorageKind] = useState(getBackupStorageKind());
   const [isBackupsLoading, setIsBackupsLoading] = useState(false);
 
+  // Viewport (pan/scale) for layout canvas (esp. mobile)
+  const [isSmallScreen, setIsSmallScreen] = useState(false);
+  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef(null); // { clientX, clientY, x, y, pointerId }
+
   const containerRef = useRef(null);
 
   // Initialize Desks
   useEffect(() => {
+    const mq = globalThis.matchMedia?.('(max-width: 767px)');
+    const apply = () => {
+      const small = Boolean(mq?.matches);
+      setIsSmallScreen(small);
+      // Default: slightly zoomed out on mobile to fit more
+      setViewport(v => ({ ...v, scale: small ? 0.82 : 1 }));
+    };
+    apply();
+    mq?.addEventListener?.('change', apply);
+    return () => mq?.removeEventListener?.('change', apply);
+  }, []);
+
+  useEffect(() => {
     const newDesks = [];
     const rows = 5;
     const cols = 4;
+    const xStart = isSmallScreen ? 20 : 50;
+    const yStart = isSmallScreen ? 60 : 80;
+    const colStep = isSmallScreen ? 130 : 160;
+    const rowStep = isSmallScreen ? 95 : 120;
     for (let i = 0; i < INITIAL_DESKS_COUNT; i++) {
       const row = Math.floor(i / cols);
       const col = i % cols;
@@ -203,13 +226,13 @@ export default function App() {
 
       newDesks.push({
         id: generateId(),
-        x: 50 + col * 160,
-        y: 80 + row * 120,
+        x: xStart + col * colStep,
+        y: yStart + row * rowStep,
         zone
       });
     }
     setDesks(newDesks);
-  }, []);
+  }, [isSmallScreen]);
 
   const getSnapshot = () => ({
     students,
@@ -352,6 +375,7 @@ export default function App() {
   const handleDeskPointerDown = (e, deskId) => {
     // Prevent touch scrolling while dragging
     e.preventDefault?.();
+    e.stopPropagation?.();
 
     if (selectedZoneTool) {
       if (selectedZoneTool === 'delete') {
@@ -377,18 +401,57 @@ export default function App() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left - desk.x;
-    const offsetY = e.clientY - rect.top - desk.y;
+    const localX = (e.clientX - rect.left - viewport.x) / viewport.scale;
+    const localY = (e.clientY - rect.top - viewport.y) / viewport.scale;
+    const offsetX = localX - desk.x;
+    const offsetY = localY - desk.y;
 
     setIsDraggingDesk(deskId);
     setDragOffset({ x: offsetX, y: offsetY });
   };
 
+  const handleCanvasPointerDown = e => {
+    if (activeTab !== 'layout') return;
+    if (isDraggingDesk) return;
+
+    // Only start panning when clicking empty background (not desks/seats/buttons)
+    const target = e.target;
+    if (target?.closest?.('[data-desk]')) return;
+
+    // If user is using zone tool, don't block taps on desks; panning still ok from empty space.
+    e.preventDefault?.();
+
+    const start = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      x: viewport.x,
+      y: viewport.y,
+      pointerId: e.pointerId
+    };
+    panStartRef.current = start;
+    setIsPanning(true);
+    try {
+      containerRef.current?.setPointerCapture?.(e.pointerId);
+    } catch {
+      // no-op
+    }
+  };
+
   const handlePointerMove = e => {
+    if (isPanning && panStartRef.current) {
+      const s = panStartRef.current;
+      const dx = e.clientX - s.clientX;
+      const dy = e.clientY - s.clientY;
+      setViewport(v => ({ ...v, x: s.x + dx, y: s.y + dy }));
+      return;
+    }
+
     if (isDraggingDesk && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
+      const localX = (e.clientX - rect.left - viewport.x) / viewport.scale;
+      const localY = (e.clientY - rect.top - viewport.y) / viewport.scale;
+      const x = localX - dragOffset.x;
+      const y = localY - dragOffset.y;
       setDesks(prev => prev.map(d => (d.id === isDraggingDesk ? { ...d, x, y } : d)));
     }
   };
@@ -400,6 +463,8 @@ export default function App() {
       // no-op
     }
     setIsDraggingDesk(null);
+    setIsPanning(false);
+    panStartRef.current = null;
   };
 
   const addDesk = () => {
@@ -575,7 +640,8 @@ export default function App() {
     return (
       <div
         onPointerDown={e => handleDeskPointerDown(e, desk.id)}
-        className={`absolute w-32 h-20 border-2 rounded-lg flex flex-col items-center justify-center cursor-move shadow-md transition-colors touch-none select-none ${zoneStyle}`}
+        data-desk
+        className={`absolute w-24 h-16 md:w-32 md:h-20 border-2 rounded-lg flex flex-col items-center justify-center cursor-move shadow-md transition-colors touch-none select-none ${zoneStyle}`}
         style={{ left: desk.x, top: desk.y }}
       >
         <div className="absolute -top-6 text-xs font-bold text-gray-500 bg-white/80 px-1 rounded">
@@ -595,14 +661,14 @@ export default function App() {
                   e.stopPropagation();
                   handleSeatClick(desk.id, idx);
                 }}
-                className={`flex-1 m-1 rounded border border-dashed border-gray-400 flex items-center justify-center cursor-pointer relative group
+                className={`flex-1 m-0.5 md:m-1 rounded border border-dashed border-gray-400 flex items-center justify-center cursor-pointer relative group
                   ${isSelected ? 'bg-blue-100 ring-2 ring-blue-500' : 'hover:bg-white/40'}
                 `}
               >
                 {student ? (
                   <>
                     <div className="text-center">
-                      <div className="font-bold text-sm text-gray-800">{student.name}</div>
+                      <div className="font-bold text-xs md:text-sm text-gray-800">{student.name}</div>
                     </div>
                     {/* Tooltip */}
                     <div className="absolute bottom-full mb-2 hidden group-hover:block z-50 w-48 bg-gray-800 text-white text-xs rounded p-2 pointer-events-none shadow-xl">
@@ -1126,6 +1192,7 @@ export default function App() {
             activeTab === 'layout' ? 'pb-32 md:pb-0' : 'pb-20 md:pb-0'
           }`}
           ref={containerRef}
+          onPointerDown={handleCanvasPointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
@@ -1198,25 +1265,38 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Board Representation */}
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-1/3 h-4 bg-gray-800 rounded-lg shadow-lg flex items-center justify-center">
-                <span className="text-white text-xs">לוח הכיתה</span>
-              </div>
-
-              {/* Desks Layer */}
-              {desks.map(desk => (
-                <Desk key={desk.id} desk={desk} />
-              ))}
-
-              {/* Layout Helper Text */}
-              {selectedStudentForSwap && (
-                <div className="absolute bottom-24 md:bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 animate-pulse">
-                  <Move size={16} /> בחר תלמיד אחר או כיסא פנוי להחלפה
-                  <button onClick={() => setSelectedStudentForSwap(null)} className="hover:bg-blue-700 p-1 rounded ml-2">
-                    <X size={14} />
-                  </button>
+              {/* Pan/Scale layer */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
+                  transformOrigin: '0 0',
+                  willChange: 'transform'
+                }}
+              >
+                {/* Board Representation */}
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-1/3 h-4 bg-gray-800 rounded-lg shadow-lg flex items-center justify-center">
+                  <span className="text-white text-xs">לוח הכיתה</span>
                 </div>
-              )}
+
+                {/* Desks Layer */}
+                {desks.map(desk => (
+                  <Desk key={desk.id} desk={desk} />
+                ))}
+
+                {/* Layout Helper Text */}
+                {selectedStudentForSwap && (
+                  <div className="absolute bottom-24 md:bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 animate-pulse">
+                    <Move size={16} /> בחר תלמיד אחר או כיסא פנוי להחלפה
+                    <button
+                      onClick={() => setSelectedStudentForSwap(null)}
+                      className="hover:bg-blue-700 p-1 rounded ml-2"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           ) : activeTab === 'constraints' ? (
             <div className="p-4 md:p-8 h-full max-w-4xl mx-auto">
